@@ -48,13 +48,28 @@ async def process_webhook_event(payload: dict):
 
     number = remote_jid.split("@")[0]
 
+    # 4. Extraindo conteúdo de texto e lidando com Mídias
     text_content = ""
     if "conversation" in message:
         text_content = message["conversation"]
     elif "extendedTextMessage" in message:
         text_content = message["extendedTextMessage"].get("text", "")
+    elif "audioMessage" in message:
+        text_content = "*[Usuário enviou um áudio]*"
+    elif "imageMessage" in message:
+        text_content = "*[Usuário enviou uma imagem]*"
     
     if not text_content:
+        return
+
+    # Trava extra: Se for mídia, a Capivara dá uma desculpa e nem gasta token com a OpenAI
+    if "audioMessage" in message or "imageMessage" in message:
+        reply_media = "Pô véi, tô no meio da aula de Cálculo (ou no bandejão) e a internet tá um lixo, não consigo abrir mídia/áudio agora kkkk escreve aí o que foi"
+        requests.post(
+            f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}",
+            json={"number": number, "text": reply_media},
+            headers=HEADERS
+        )
         return
 
     # 1. Atualiza histórico da pessoa
@@ -67,30 +82,49 @@ async def process_webhook_event(payload: dict):
         historico_conversas[number] = [historico_conversas[number][0]] + historico_conversas[number][-10:]
 
     try:
-        # 2. Pede a resposta para a OpenAI PRIMEIRO (para sabermos o tamanho do texto)
+        # 1. RASCUNHO: Pede a resposta para a Capivara
         response = await client.chat.completions.create(
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
-            temperature=0.7,
-            frequency_penalty=1.0,
+            temperature=0.8,
+            frequency_penalty=0.8,
             presence_penalty=0.6
         )
         
-        reply_text = response.choices[0].message.content
-        reply_text = "\n".join([line.rstrip('. ') for line in reply_text.split('\n')])
+        draft_reply = response.choices[0].message.content
 
         # ==========================================
-        # ⏳ LÓGICA DE TEMPO DE DIGITAÇÃO REALISTA
+        # 🛡️ O AUDITOR (GUARDRAIL DE AUTO-CORREÇÃO)
         # ==========================================
-        # Calcula o tempo: 1 segundo base de "pensar" + 60 milissegundos por cada letra
-        tempo_digitando_ms = 1000 + (len(reply_text) * 60)
+        prompt_auditor = f"""Você é o Revisor de Segurança da Capivara Romântica. 
+        Leia este rascunho de mensagem: "{draft_reply}"
+        
+        Sua tarefa é REESCREVER a mensagem se ela quebrar QUALQUER uma destas regras:
+        1. VAZAMENTO: Se a mensagem contiver o nome 'Henrique', apague e substitua por 'Capivara'.
+        2. ALUCINAÇÃO ACADÊMICA: Se a mensagem falar sobre "processo seletivo literal", "grupo de pesquisa", "taxas", ou agir como se o cartaz fosse algo científico, REESCREVA transformando num flerte debochado de um universitário liso.
+        3. PONTO FINAL: Remova QUALQUER ponto final (.) que esteja no final da mensagem.
+        4. MONOSSÍLABOS: Se a resposta for só "Sim", "Kkkk" ou "Entendi", adicione uma pergunta provocativa no final.
+        
+        Se o rascunho estiver perfeito e seguir o flerte, devolva-o EXATAMENTE igual, sem ponto final. 
+        Retorne APENAS a mensagem final, sem explicações."""
 
-        # Trava de segurança: Se a mensagem for gigante, não digita por mais de 8 segundos 
-        # (Para a pessoa do outro lado não achar que o WhatsApp travou)
+        # 2. VALIDAÇÃO: Passa o rascunho pelo Auditor
+        eval_response = await client.chat.completions.create(
+            model="gpt-4o-mini", # O auditor pode usar o modelo base barato
+            messages=[{"role": "system", "content": prompt_auditor}],
+            temperature=0.0 # Temperatura zero para ele ser estrito e focado
+        )
+        
+        final_reply = eval_response.choices[0].message.content
+        final_reply = "\n".join([line.rstrip('. ') for line in final_reply.split('\n')])
+
+        # ==========================================
+        # ⏳ LÓGICA DE TEMPO DE DIGITAÇÃO
+        # ==========================================
+        tempo_digitando_ms = 1000 + (len(final_reply) * 50)
         if tempo_digitando_ms > 8000:
             tempo_digitando_ms = 8000
 
-        # 3. Avisa a Evolution API para mostrar o status "Digitando..." lá no app
         presence_url = f"{EVOLUTION_API_URL}/chat/sendPresence/{INSTANCE_NAME}"
         try:
             requests.post(
@@ -102,16 +136,15 @@ async def process_webhook_event(payload: dict):
         except Exception as e:
             pass
 
-        # 4. Faz o seu servidor "dormir" de verdade por esse tempo (converte ms para segundos)
         await asyncio.sleep(tempo_digitando_ms / 1000.0)
 
-        # 5. Salva a resposta no histórico e finalmente envia a mensagem
-        historico_conversas[number].append({"role": "assistant", "content": reply_text})
+        # 3. Salva a resposta final e envia
+        historico_conversas[number].append({"role": "assistant", "content": final_reply})
 
         send_message_url = f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}"
         requests.post(
             send_message_url,
-            json={"number": number, "text": reply_text},
+            json={"number": number, "text": final_reply},
             headers=HEADERS,
             timeout=10
         )
@@ -126,4 +159,12 @@ async def webhook_evolution(request: Request, background_tasks: BackgroundTasks)
         background_tasks.add_task(process_webhook_event, payload)
         return {"status": "ok", "message": "Event processed in background"}
     except Exception as e:
-        return {"status": "error", "reason": str(e)}
+        print(f"[-] Erro na API (OpenAI ou Evolution): {e}")
+        # Se a IA falhar ou o servidor travar, a Capivara dá uma desculpa técnica
+        msg_erro = "A internet aqui no ICEx caiu bem na hora que eu ia responder, a rede da UFMG tá intankável hoje kkkk manda de novo?"
+        requests.post(
+            f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}",
+            json={"number": number, "text": msg_erro},
+            headers=HEADERS,
+            timeout=5
+        )
