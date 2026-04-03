@@ -1,5 +1,6 @@
 import os
 import requests
+import asyncio # <-- NOVO IMPORT NECESSÁRIO AQUI
 from fastapi import FastAPI, Request, BackgroundTasks
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
@@ -25,7 +26,7 @@ HEADERS = {
 }
 
 # ==========================================
-# 🧠 O CÉREBRO: Dicionário para guardar a memória das conversas
+# 🧠 O CÉREBRO: Dicionário para guardar a memória
 # ==========================================
 historico_conversas = {}
 
@@ -56,51 +57,57 @@ async def process_webhook_event(payload: dict):
     if not text_content:
         return
 
-    # Simulate Typing Delay
-    presence_url = f"{EVOLUTION_API_URL}/chat/sendPresence/{INSTANCE_NAME}"
-    try:
-        requests.post(
-            presence_url, 
-            json={"number": number, "presence": "composing", "delay": 2000},
-            headers=HEADERS,
-            timeout=5
-        )
-    except Exception as e:
-        pass
-
-    # ==========================================
-    # LÓGICA DE MEMÓRIA APLICADA AQUI
-    # ==========================================
-    
-    # 1. Se é a primeira vez que a pessoa manda mensagem, cria a lista dela com o System Prompt
+    # 1. Atualiza histórico da pessoa
     if number not in historico_conversas:
         historico_conversas[number] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    # 2. Adiciona a mensagem que o usuário acabou de mandar no histórico
     historico_conversas[number].append({"role": "user", "content": text_content})
 
-    # 3. Limite de memória: Mantém o System Prompt (índice 0) e as últimas 10 mensagens
-    # Isso evita gastar todos os seus tokens da OpenAI se a pessoa conversar por 3 horas seguidas
     if len(historico_conversas[number]) > 11:
         historico_conversas[number] = [historico_conversas[number][0]] + historico_conversas[number][-10:]
 
     try:
-        # 4. Envia o HISTÓRICO INTEIRO para a OpenAI
+        # 2. Pede a resposta para a OpenAI PRIMEIRO (para sabermos o tamanho do texto)
         response = await client.chat.completions.create(
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
-            temperature=0.7,             # Aumentado para trazer de volta o humor e a criatividade
-            frequency_penalty=1.0,       # Impede o bot de repetir a mesma frase ou vício de linguagem
-            presence_penalty=0.6         # Encoraja o bot a trazer assuntos novos para a conversa
+            temperature=0.7,
+            frequency_penalty=1.0,
+            presence_penalty=0.6
         )
         
         reply_text = response.choices[0].message.content
         reply_text = "\n".join([line.rstrip('. ') for line in reply_text.split('\n')])
 
-        # 5. Salva a resposta da Capivara no histórico para ela lembrar do que ELA MESMA disse
+        # ==========================================
+        # ⏳ LÓGICA DE TEMPO DE DIGITAÇÃO REALISTA
+        # ==========================================
+        # Calcula o tempo: 1 segundo base de "pensar" + 60 milissegundos por cada letra
+        tempo_digitando_ms = 1000 + (len(reply_text) * 60)
+
+        # Trava de segurança: Se a mensagem for gigante, não digita por mais de 8 segundos 
+        # (Para a pessoa do outro lado não achar que o WhatsApp travou)
+        if tempo_digitando_ms > 8000:
+            tempo_digitando_ms = 8000
+
+        # 3. Avisa a Evolution API para mostrar o status "Digitando..." lá no app
+        presence_url = f"{EVOLUTION_API_URL}/chat/sendPresence/{INSTANCE_NAME}"
+        try:
+            requests.post(
+                presence_url, 
+                json={"number": number, "presence": "composing", "delay": tempo_digitando_ms},
+                headers=HEADERS,
+                timeout=5
+            )
+        except Exception as e:
+            pass
+
+        # 4. Faz o seu servidor "dormir" de verdade por esse tempo (converte ms para segundos)
+        await asyncio.sleep(tempo_digitando_ms / 1000.0)
+
+        # 5. Salva a resposta no histórico e finalmente envia a mensagem
         historico_conversas[number].append({"role": "assistant", "content": reply_text})
 
-        # Enviar resposta via Evolution
         send_message_url = f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}"
         requests.post(
             send_message_url,
