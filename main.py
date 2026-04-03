@@ -89,7 +89,7 @@ async def process_webhook_event(payload: dict):
         response = await client.chat.completions.create(
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
-            temperature=0.85 # Aumentei um pouquinho para ela ser mais criativa nas perguntas aleatórias
+            temperature=0.3 # Aumentei um pouquinho para ela ser mais criativa nas perguntas aleatórias
         )
         
         reply_text = response.choices[0].message.content
