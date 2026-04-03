@@ -85,11 +85,13 @@ async def process_webhook_event(payload: dict):
         historico_conversas[number] = [historico_conversas[number][0]] + historico_conversas[number][-10:]
 
     try:
-        # 4. Envia o HISTÓRICO INTEIRO para a OpenAI, não apenas a última mensagem
+        # 4. Envia o HISTÓRICO INTEIRO para a OpenAI
         response = await client.chat.completions.create(
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
-            temperature=0.3 # Aumentei um pouquinho para ela ser mais criativa nas perguntas aleatórias
+            temperature=0.7,             # Aumentado para trazer de volta o humor e a criatividade
+            frequency_penalty=1.0,       # Impede o bot de repetir a mesma frase ou vício de linguagem
+            presence_penalty=0.6         # Encoraja o bot a trazer assuntos novos para a conversa
         )
         
         reply_text = response.choices[0].message.content
