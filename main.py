@@ -1,6 +1,6 @@
 import os
 import requests
-import asyncio # <-- NOVO IMPORT NECESSÁRIO AQUI
+import asyncio
 from fastapi import FastAPI, Request, BackgroundTasks
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
@@ -25,14 +25,10 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# ==========================================
-# 🧠 O CÉREBRO: Dicionário para guardar a memória
-# ==========================================
 historico_conversas = {}
 numeros_em_processamento = set()
 
 async def process_webhook_event(payload: dict):
-    await asyncio.sleep(2)
     event_type = payload.get("event", "")
     if event_type != "messages.upsert":
         return
@@ -50,7 +46,6 @@ async def process_webhook_event(payload: dict):
 
     number = remote_jid.split("@")[0]
 
-    # 4. Extraindo conteúdo de texto e lidando com Mídias
     text_content = ""
     if "conversation" in message:
         text_content = message["conversation"]
@@ -64,15 +59,22 @@ async def process_webhook_event(payload: dict):
     if not text_content:
         return
 
+    # Garante que o histórico existe
+    if number not in historico_conversas:
+        historico_conversas[number] = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # Se já existe uma resposta a ser gerada, apenas adiciona a nova mensagem ao histórico e encerra.
+    # A task que está a dormir vai ler esta mensagem nova quando acordar!
     if number in numeros_em_processamento:
+        historico_conversas[number].append({"role": "user", "content": text_content})
         return
 
+    # Se não está em processamento, bloqueia o número e assume a liderança
     numeros_em_processamento.add(number)
 
     try:
-        # Trava extra: Se for mídia, a Capivara dá uma desculpa e nem gasta token com a OpenAI
         if "audioMessage" in message or "imageMessage" in message:
-            reply_media = "Pô véi, tô no meio da aula de Cálculo (ou no bandejão) e a internet tá um lixo, não consigo abrir mídia/áudio agora kkkk escreve aí o que foi"
+            reply_media = "pô véi, tô no meio da aula (ou no bandejão) e a internet tá um lixo, não consigo abrir mídia agora kkkk escreve aí o que foi"
             requests.post(
                 f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}",
                 json={"number": number, "text": reply_media},
@@ -80,89 +82,78 @@ async def process_webhook_event(payload: dict):
             )
             return
 
-        # 1. Atualiza histórico da pessoa
-        if number not in historico_conversas:
-            historico_conversas[number] = [{"role": "system", "content": SYSTEM_PROMPT}]
-
+        # Adiciona a primeira mensagem
         historico_conversas[number].append({"role": "user", "content": text_content})
+
+        # Dorme 3 segundos para acumular mensagens rápidas que o utilizador envie de rajada
+        await asyncio.sleep(3)
 
         if len(historico_conversas[number]) > 41:
             historico_conversas[number] = [historico_conversas[number][0]] + historico_conversas[number][-40:]
 
-        try:
-            # 1. RASCUNHO: Pede a resposta para a Capivara
-            response = await client.chat.completions.create(
-                model=OPENAI_MODEL_ID,
-                messages=historico_conversas[number],
-                temperature=0.8,
-                frequency_penalty=0.2,
-                presence_penalty=0.6
-            )
-            
-            draft_reply = response.choices[0].message.content
+        # RASCUNHO
+        response = await client.chat.completions.create(
+            model=OPENAI_MODEL_ID,
+            messages=historico_conversas[number],
+            temperature=0.8,
+            frequency_penalty=0.2,
+            presence_penalty=0.6
+        )
+        
+        draft_reply = response.choices[0].message.content
 
-            # ==========================================
-            # 🛡️ O AUDITOR (GUARDRAIL DE AUTO-CORREÇÃO)
-            # ==========================================
-            prompt_auditor = f"""Você é um script de formatação invisível. 
+        # AUDITOR (Agora sem substituir o nome 'Henrique' para não estragar nomes de candidatos)
+        prompt_auditor = f"""Você é um script de formatação invisível. 
         Leia este rascunho de mensagem: "{draft_reply}"
         
-        Sua tarefa é APENAS aplicar estas correções mecânicas, mantendo o tom e as palavras exatas do rascunho:
-        1. VAZAMENTO: Se contiver o nome 'Henrique', substitua por 'Capivara'.
-        2. ASPAS E LISTAS: Remova TODAS as aspas (") do texto. Remova qualquer hífen (-) usado como bullet point.
-        3. PONTO FINAL: Remova QUALQUER ponto final (.) no final da mensagem.
-        4. GANCHOS: Se o rascunho não terminar com uma pergunta, adicione uma pergunta provocativa curta em letras minúsculas.
+        Sua tarefa é APENAS aplicar estas correções mecânicas:
+        1. ASPAS E LISTAS: Remova TODAS as aspas (") do texto. Remova qualquer hífen (-) usado como bullet point.
+        2. PONTO FINAL: Remova QUALQUER ponto final (.) no final da mensagem.
+        3. GANCHOS: Se o rascunho não terminar com uma pergunta, adicione uma pergunta provocativa curta em letras minúsculas.
         
         NUNCA reescreva o texto original com suas próprias palavras. Devolva apenas o texto limpo, sem explicações."""
 
-            # 2. VALIDAÇÃO: Passa o rascunho pelo Auditor
-            eval_response = await client.chat.completions.create(
-                model="gpt-4o-mini", # O auditor pode usar o modelo base barato
-                messages=[{"role": "system", "content": prompt_auditor}],
-                temperature=0.0 # Temperatura zero para ele ser estrito e focado
-            )
-            
-            final_reply = eval_response.choices[0].message.content
-            final_reply = final_reply.replace("Henrique", "Capivara").replace("henrique", "capivara")
-            final_reply = "\n".join([line.rstrip('. ') for line in final_reply.split('\n')])
+        eval_response = await client.chat.completions.create(
+            model="gpt-4o-mini", 
+            messages=[{"role": "system", "content": prompt_auditor}],
+            temperature=0.0 
+        )
+        
+        final_reply = eval_response.choices[0].message.content
+        final_reply = "\n".join([line.rstrip('. ') for line in final_reply.split('\n')])
 
-            # ==========================================
-            # ⏳ LÓGICA DE TEMPO DE DIGITAÇÃO
-            # ==========================================
-            # Multiplica por 70ms por caractere (uma digitação mais lenta)
-            tempo_digitando_ms = 2000 + (len(final_reply) * 70) 
+        # TEMPO DE DIGITAÇÃO
+        tempo_digitando_ms = 2000 + (len(final_reply) * 70) 
+        if tempo_digitando_ms > 15000:
+            tempo_digitando_ms = 15000
 
-            # Aumenta o teto máximo para 15 segundos
-            if tempo_digitando_ms > 15000:
-                tempo_digitando_ms = 15000
-
-            presence_url = f"{EVOLUTION_API_URL}/chat/sendPresence/{INSTANCE_NAME}"
-            try:
-                requests.post(
-                    presence_url, 
-                    json={"number": number, "presence": "composing", "delay": tempo_digitando_ms},
-                    headers=HEADERS,
-                    timeout=5
-                )
-            except Exception as e:
-                pass
-
-            await asyncio.sleep(tempo_digitando_ms / 1000.0)
-
-            # 3. Salva a resposta final e envia
-            historico_conversas[number].append({"role": "assistant", "content": final_reply})
-
-            send_message_url = f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}"
+        presence_url = f"{EVOLUTION_API_URL}/chat/sendPresence/{INSTANCE_NAME}"
+        try:
             requests.post(
-                send_message_url,
-                json={"number": number, "text": final_reply},
+                presence_url, 
+                json={"number": number, "presence": "composing", "delay": tempo_digitando_ms},
                 headers=HEADERS,
-                timeout=10
+                timeout=5
             )
-            
-        except Exception as e:
-            print(f"[-] Erro na API: {e}")
+        except Exception:
+            pass
+
+        await asyncio.sleep(tempo_digitando_ms / 1000.0)
+
+        historico_conversas[number].append({"role": "assistant", "content": final_reply})
+
+        send_message_url = f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}"
+        requests.post(
+            send_message_url,
+            json={"number": number, "text": final_reply},
+            headers=HEADERS,
+            timeout=10
+        )
+        
+    except Exception as e:
+        print(f"[-] Erro na API interna: {e}")
     finally:
+        # Liberta o bloqueio para a próxima interação
         numeros_em_processamento.discard(number)
 
 @app.post("/webhook")
@@ -170,14 +161,6 @@ async def webhook_evolution(request: Request, background_tasks: BackgroundTasks)
     try:
         payload = await request.json()
         background_tasks.add_task(process_webhook_event, payload)
-        return {"status": "ok", "message": "Event processed in background"}
+        return {"status": "ok", "message": "Processado"}
     except Exception as e:
-        print(f"[-] Erro na API (OpenAI ou Evolution): {e}")
-        # Se a IA falhar ou o servidor travar, a Capivara dá uma desculpa técnica
-        msg_erro = "A internet aqui no ICEx caiu bem na hora que eu ia responder, a rede da UFMG tá intankável hoje kkkk manda de novo?"
-        requests.post(
-            f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}",
-            json={"number": number, "text": msg_erro},
-            headers=HEADERS,
-            timeout=5
-        )
+        print(f"[-] Erro fatal no Webhook: {e}")
