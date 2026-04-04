@@ -107,13 +107,8 @@ async def process_webhook_event(payload: dict):
             prompt_auditor = f"""Você é o Revisor de Segurança da Capivara Romântica. 
             Leia este rascunho de mensagem: "{draft_reply}"
             
-            Sua tarefa é REESCREVER a mensagem se ela quebrar QUALQUER uma destas regras:
-            1. VAZAMENTO: Se a mensagem contiver o nome 'Henrique', apague e substitua por 'Capivara'.
-            2. ALUCINAÇÃO ACADÊMICA: Se a mensagem falar sobre "processo seletivo literal", "grupo de pesquisa", "taxas", ou agir como se o cartaz fosse algo científico, REESCREVA transformando num flerte debochado de um universitário liso.
-            3. PONTO FINAL: Remova QUALQUER ponto final (.) que esteja no final da mensagem.
-            4. OBRIGAÇÃO DE PERGUNTA: TODA mensagem DEVE terminar com uma pergunta ou provocação. Se o rascunho não tiver uma pergunta no final, ADICIONE UMA que faça sentido com o contexto.
+            Sua tarefa é APENAS adicionar uma pergunta curta e sarcástica no final do rascunho, caso ele não termine com uma pergunta. NUNCA reescreva ou altere o texto original. Mantenha as minúsculas e o tom de universitário cansado.
             
-            Se o rascunho estiver perfeito e seguir o flerte, devolva-o EXATAMENTE igual, sem ponto final. 
             Retorne APENAS a mensagem final, sem explicações."""
 
             # 2. VALIDAÇÃO: Passa o rascunho pelo Auditor
@@ -124,6 +119,7 @@ async def process_webhook_event(payload: dict):
             )
             
             final_reply = eval_response.choices[0].message.content
+            final_reply = final_reply.replace("Henrique", "Capivara").replace("henrique", "capivara")
             final_reply = "\n".join([line.rstrip('. ') for line in final_reply.split('\n')])
 
             # ==========================================
