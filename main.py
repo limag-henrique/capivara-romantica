@@ -91,7 +91,7 @@ async def process_webhook_event(payload: dict):
         if len(historico_conversas[number]) > 41:
             historico_conversas[number] = [historico_conversas[number][0]] + historico_conversas[number][-40:]
 
-        # RASCUNHO
+        # RASCUNHO (Sua chamada da API original se mantém)
         response = await client.chat.completions.create(
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
@@ -102,25 +102,26 @@ async def process_webhook_event(payload: dict):
         
         draft_reply = response.choices[0].message.content
 
-        # AUDITOR (Agora sem substituir o nome 'Henrique' para não estragar nomes de candidatos)
-        prompt_auditor = f"""Você é um script de formatação invisível. 
-        Leia este rascunho de mensagem: "{draft_reply}"
+        # AUDITOR NATIVO (Substituindo o gpt-4o-mini por código puro)
+        # 1. Remove aspas
+        final_reply = draft_reply.replace('"', '').replace('“', '').replace('”', '')
         
-        Sua tarefa é APENAS aplicar estas correções mecânicas:
-        1. ASPAS E LISTAS: Remova TODAS as aspas (") do texto. Remova qualquer hífen (-) usado como bullet point.
-        2. PONTO FINAL: Remova QUALQUER ponto final (.) no final da mensagem.
-        3. GANCHOS: Se o rascunho não terminar com uma pergunta, adicione uma pergunta provocativa curta em letras minúsculas.
-        
-        NUNCA reescreva o texto original com suas próprias palavras. Devolva apenas o texto limpo, sem explicações."""
-
-        eval_response = await client.chat.completions.create(
-            model="gpt-4o-mini", 
-            messages=[{"role": "system", "content": prompt_auditor}],
-            temperature=0.0 
-        )
-        
-        final_reply = eval_response.choices[0].message.content
-        final_reply = "\n".join([line.rstrip('. ') for line in final_reply.split('\n')])
+        # 2. Limpeza de pontos finais e formatação
+        linhas = final_reply.split('\n')
+        linhas_limpas = []
+        for linha in linhas:
+            linha_limpa = linha.strip()
+            # Se a linha começar com -, remove (evita bullet points)
+            if linha_limpa.startswith('-'):
+                linha_limpa = linha_limpa.lstrip('- ')
+            # Remove ponto final no fim da frase
+            while linha_limpa.endswith('.'):
+                linha_limpa = linha_limpa[:-1]
+                
+            if linha_limpa:
+                linhas_limpas.append(linha_limpa)
+                
+        final_reply = "\n".join(linhas_limpas)
 
         # TEMPO DE DIGITAÇÃO
         tempo_digitando_ms = 2000 + (len(final_reply) * 70) 
