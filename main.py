@@ -104,12 +104,16 @@ async def process_webhook_event(payload: dict):
             # ==========================================
             # 🛡️ O AUDITOR (GUARDRAIL DE AUTO-CORREÇÃO)
             # ==========================================
-            prompt_auditor = f"""Você é o Revisor de Segurança da Capivara Romântica. 
-            Leia este rascunho de mensagem: "{draft_reply}"
-            
-            Sua tarefa é APENAS adicionar uma pergunta curta e sarcástica no final do rascunho, caso ele não termine com uma pergunta. NUNCA reescreva ou altere o texto original. Mantenha as minúsculas e o tom de universitário cansado.
-            
-            Retorne APENAS a mensagem final, sem explicações."""
+            prompt_auditor = f"""Você é um script de formatação invisível. 
+        Leia este rascunho de mensagem: "{draft_reply}"
+        
+        Sua tarefa é APENAS aplicar estas correções mecânicas, mantendo o tom e as palavras exatas do rascunho:
+        1. VAZAMENTO: Se contiver o nome 'Henrique', substitua por 'Capivara'.
+        2. ASPAS E LISTAS: Remova TODAS as aspas (") do texto. Remova qualquer hífen (-) usado como bullet point.
+        3. PONTO FINAL: Remova QUALQUER ponto final (.) no final da mensagem.
+        4. GANCHOS: Se o rascunho não terminar com uma pergunta, adicione uma pergunta provocativa curta em letras minúsculas.
+        
+        NUNCA reescreva o texto original com suas próprias palavras. Devolva apenas o texto limpo, sem explicações."""
 
             # 2. VALIDAÇÃO: Passa o rascunho pelo Auditor
             eval_response = await client.chat.completions.create(
