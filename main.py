@@ -32,6 +32,7 @@ historico_conversas = {}
 numeros_em_processamento = set()
 
 async def process_webhook_event(payload: dict):
+    await asyncio.sleep(2)
     event_type = payload.get("event", "")
     if event_type != "messages.upsert":
         return
@@ -85,8 +86,8 @@ async def process_webhook_event(payload: dict):
 
         historico_conversas[number].append({"role": "user", "content": text_content})
 
-        if len(historico_conversas[number]) > 11:
-            historico_conversas[number] = [historico_conversas[number][0]] + historico_conversas[number][-10:]
+        if len(historico_conversas[number]) > 41:
+            historico_conversas[number] = [historico_conversas[number][0]] + historico_conversas[number][-40:]
 
         try:
             # 1. RASCUNHO: Pede a resposta para a Capivara
@@ -110,7 +111,7 @@ async def process_webhook_event(payload: dict):
             1. VAZAMENTO: Se a mensagem contiver o nome 'Henrique', apague e substitua por 'Capivara'.
             2. ALUCINAÇÃO ACADÊMICA: Se a mensagem falar sobre "processo seletivo literal", "grupo de pesquisa", "taxas", ou agir como se o cartaz fosse algo científico, REESCREVA transformando num flerte debochado de um universitário liso.
             3. PONTO FINAL: Remova QUALQUER ponto final (.) que esteja no final da mensagem.
-            4. MONOSSÍLABOS: Se a resposta for só "Sim", "Kkkk" ou "Entendi", adicione uma pergunta provocativa no final.
+            4. OBRIGAÇÃO DE PERGUNTA: TODA mensagem DEVE terminar com uma pergunta ou provocação. Se o rascunho não tiver uma pergunta no final, ADICIONE UMA que faça sentido com o contexto.
             
             Se o rascunho estiver perfeito e seguir o flerte, devolva-o EXATAMENTE igual, sem ponto final. 
             Retorne APENAS a mensagem final, sem explicações."""
