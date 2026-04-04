@@ -95,9 +95,9 @@ async def process_webhook_event(payload: dict):
         response = await client.chat.completions.create(
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
-            temperature=0.8,
-            frequency_penalty=0.2,
-            presence_penalty=0.6
+            temperature=0.4,       # Reduzido de 0.8 (deixa as respostas mais realistas e pé no chão)
+            frequency_penalty=0.0, # Zerado (evita que ele fique buscando palavras raras)
+            presence_penalty=0.1   # Reduzido de 0.6 (evita que ele force novos tópicos aleatórios)
         )
         
         draft_reply = response.choices[0].message.content
