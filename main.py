@@ -87,35 +87,17 @@ async def process_webhook_event(payload: dict):
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
             temperature=0.7,
-            frequency_penalty=0.1,
+            frequency_penalty=0,
             presence_penalty=0.6
         )
         
         draft_reply = response.choices[0].message.content
 
         # ==========================================
-        # 🛡️ O AUDITOR (GUARDRAIL DE AUTO-CORREÇÃO)
+        # 🛡️ TRATAMENTO LOCAL DA MENSAGEM
         # ==========================================
-        prompt_auditor = f"""Você é o Revisor de Segurança da Capivara Romântica. 
-        Leia este rascunho de mensagem: "{draft_reply}"
-        
-        Sua tarefa é REESCREVER a mensagem se ela quebrar QUALQUER uma destas regras:
-        1. VAZAMENTO: Se a mensagem contiver o nome 'Henrique', apague e substitua por 'Capivara'.
-        2. ALUCINAÇÃO ACADÊMICA: Se a mensagem falar sobre "processo seletivo literal", "grupo de pesquisa", "taxas", ou agir como se o cartaz fosse algo científico, REESCREVA transformando num flerte debochado de um universitário liso.
-        3. PONTO FINAL: Remova QUALQUER ponto final (.) que esteja no final da mensagem.
-        4. MONOSSÍLABOS: Se a resposta for só "Sim", "Kkkk" ou "Entendi", adicione uma pergunta provocativa no final.
-        
-        Se o rascunho estiver perfeito e seguir o flerte, devolva-o EXATAMENTE igual, sem ponto final. 
-        Retorne APENAS a mensagem final, sem explicações."""
-
-        # 2. VALIDAÇÃO: Passa o rascunho pelo Auditor
-        eval_response = await client.chat.completions.create(
-            model="gpt-4o-mini", # O auditor pode usar o modelo base barato
-            messages=[{"role": "system", "content": prompt_auditor}],
-            temperature=0.0 # Temperatura zero para ele ser estrito e focado
-        )
-        
-        final_reply = eval_response.choices[0].message.content
+        # Substitui vazamento de nome e remove pontos finais
+        final_reply = draft_reply.replace("Henrique", "Capivara").replace("henrique", "capivara")
         final_reply = "\n".join([line.rstrip('. ') for line in final_reply.split('\n')])
 
         # ==========================================
