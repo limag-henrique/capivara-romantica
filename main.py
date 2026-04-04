@@ -12,7 +12,7 @@ load_dotenv()
 app = FastAPI(title="Capivara Romantica Webhook")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID", "gpt-3.5-turbo") 
+OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID", "gpt-4o-mini")
 
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
