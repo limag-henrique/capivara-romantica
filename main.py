@@ -86,8 +86,8 @@ async def process_webhook_event(payload: dict):
         response = await client.chat.completions.create(
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
-            temperature=0.8,
-            frequency_penalty=0.8,
+            temperature=0.7,
+            frequency_penalty=0.1,
             presence_penalty=0.6
         )
         
