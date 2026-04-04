@@ -87,7 +87,7 @@ async def process_webhook_event(payload: dict):
             model=OPENAI_MODEL_ID,
             messages=historico_conversas[number],
             temperature=0.8,
-            frequency_penalty=0.2,
+            frequency_penalty=0.8,
             presence_penalty=0.6
         )
         
