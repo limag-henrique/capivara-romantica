@@ -134,35 +134,40 @@ async def process_webhook_event(payload: dict):
             if linha_limpa:
                 linhas_limpas.append(linha_limpa)
                 
+        # Salva a mensagem completa (unida por \n) no histórico de conversas para a IA lembrar do contexto
         final_reply = "\n".join(linhas_limpas)
-
-        # TEMPO DE DIGITAÇÃO
-        tempo_digitando_ms = 2000 + (len(final_reply) * 70) 
-        if tempo_digitando_ms > 15000:
-            tempo_digitando_ms = 15000
-
-        presence_url = f"{EVOLUTION_API_URL}/chat/sendPresence/{INSTANCE_NAME}"
-        try:
-            requests.post(
-                presence_url, 
-                json={"number": number, "presence": "composing", "delay": tempo_digitando_ms},
-                headers=HEADERS,
-                timeout=5
-            )
-        except Exception:
-            pass
-
-        await asyncio.sleep(tempo_digitando_ms / 1000.0)
-
         historico_conversas[number].append({"role": "assistant", "content": final_reply})
 
-        send_message_url = f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}"
-        requests.post(
-            send_message_url,
-            json={"number": number, "text": final_reply},
-            headers=HEADERS,
-            timeout=10
-        )
+        # Agora, envia CADA LINHA como uma mensagem SEPARADA no WhatsApp (simulando rajada de mensagens)
+        for balao in linhas_limpas:
+            # TEMPO DE DIGITAÇÃO POR BALÃO (mais rápido por serem mensagens curtas)
+            tempo_digitando_ms = 1500 + (len(balao) * 50) 
+            if tempo_digitando_ms > 12000:
+                tempo_digitando_ms = 12000
+
+            presence_url = f"{EVOLUTION_API_URL}/chat/sendPresence/{INSTANCE_NAME}"
+            try:
+                requests.post(
+                    presence_url, 
+                    json={"number": number, "presence": "composing", "delay": tempo_digitando_ms},
+                    headers=HEADERS,
+                    timeout=5
+                )
+            except Exception:
+                pass
+
+            await asyncio.sleep(tempo_digitando_ms / 1000.0)
+
+            send_message_url = f"{EVOLUTION_API_URL}/message/sendText/{INSTANCE_NAME}"
+            try:
+                requests.post(
+                    send_message_url,
+                    json={"number": number, "text": balao},
+                    headers=HEADERS,
+                    timeout=10
+                )
+            except Exception:
+                pass
         
     except Exception as e:
         print(f"[-] Erro na API interna: {e}")
