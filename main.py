@@ -1,4 +1,6 @@
 import os
+import time
+import re
 import requests
 import asyncio
 from fastapi import FastAPI, Request, BackgroundTasks
@@ -26,6 +28,7 @@ HEADERS = {
 }
 
 historico_conversas = {}
+last_activity = {}  # Rastreia o tempo do último contato de cada número
 numeros_em_processamento = set()
 
 async def process_webhook_event(payload: dict):
@@ -45,6 +48,18 @@ async def process_webhook_event(payload: dict):
         return
 
     number = remote_jid.split("@")[0]
+
+    # Atualiza o timestamp de atividade do usuário
+    current_time = time.time()
+    last_activity[number] = current_time
+
+    # Rotina Ninja de Limpeza (evita Memory Leak no Render)
+    # Remove qualquer pessoa inativa há mais de 2 horas (7200 segundos)
+    numeros_inativos = [num for num, timestamp in last_activity.items() if current_time - timestamp > 7200]
+    for num in numeros_inativos:
+        historico_conversas.pop(num, None)
+        last_activity.pop(num, None)
+        numeros_em_processamento.discard(num)
 
     text_content = ""
     if "conversation" in message:
@@ -102,21 +117,19 @@ async def process_webhook_event(payload: dict):
         
         draft_reply = response.choices[0].message.content
 
-        # AUDITOR NATIVO (Substituindo o gpt-4o-mini por código puro)
-        # 1. Remove aspas
-        final_reply = draft_reply.replace('"', '').replace('“', '').replace('”', '')
+        # AUDITOR NATIVO (Substituindo o gpt-4o-mini por código puro, agora com Regex)
+        # 1. Remove aspas normais e curvas
+        final_reply = re.sub(r'["“”]', '', draft_reply)
         
-        # 2. Limpeza de pontos finais e formatação
+        # 2. Limpeza de markdown, bullets e formatação
         linhas = final_reply.split('\n')
         linhas_limpas = []
         for linha in linhas:
-            linha_limpa = linha.strip()
-            # Se a linha começar com -, remove (evita bullet points)
-            if linha_limpa.startswith('-'):
-                linha_limpa = linha_limpa.lstrip('- ')
-            # Remove ponto final no fim da frase
-            while linha_limpa.endswith('.'):
-                linha_limpa = linha_limpa[:-1]
+            # Remove marcadores de lista (*, -, +) e espaços vazios no ínicio/fim da linha
+            linha_limpa = re.sub(r'^[\-\+\*\s]+', '', linha.strip())
+            
+            # Remove qualquer ponto final que fique grudado no fim da frase.
+            linha_limpa = re.sub(r'\.+$', '', linha_limpa)
                 
             if linha_limpa:
                 linhas_limpas.append(linha_limpa)
